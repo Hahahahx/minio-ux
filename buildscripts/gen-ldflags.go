@@ -79,35 +79,6 @@ func commitID() string {
 	return strings.TrimSpace(string(commit))
 }
 
-func commitTime() time.Time {
-	// git log --format=%cD -n1
-	var (
-		commitUnix []byte
-		err        error
-	)
-	cmdName := "git"
-	cmdArgs := []string{"log", "--format=%cI", "-n1"}
-	if commitUnix, err = exec.Command(cmdName, cmdArgs...).Output(); err != nil {
-		fmt.Fprintln(os.Stderr, "Error generating git commit-time: ", err)
-		os.Exit(1)
-	}
-
-	t, err := time.Parse(time.RFC3339, strings.TrimSpace(string(commitUnix)))
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error generating git commit-time: ", err)
-		os.Exit(1)
-	}
-
-	return t.UTC()
-}
-
 func main() {
-	var version string
-	if len(os.Args) > 1 {
-		version = os.Args[1]
-	} else {
-		version = commitTime().Format(time.RFC3339)
-	}
-
-	fmt.Println(genLDFlags(version))
+	fmt.Println(genLDFlags(time.Now().UTC().Format(time.RFC3339)))
 }
