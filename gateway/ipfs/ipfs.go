@@ -93,8 +93,14 @@ func (g *IPFS) NewGatewayLayer(creds madmin.Credentials) (minio.ObjectLayer, err
 	// Where your local node is running on localhost:5001
 	host := If(g.host != "", g.host, "localhost:5001").(string)
 	sh := shell.NewShell(host)
+	out, err := sh.ID()
+	if err != nil {
+		fmt.Println("IPFS connected failure " + host)
+		return nil, err
+	}
 
-	fmt.Println("IPFS is run in: " + host)
+	fmt.Printf("\nIPFS is run in: " + host)
+	fmt.Printf("\nIpfs.ID: %s\n", out.ID)
 
 	return &ipfsObjects{
 		ipfs: sh,
