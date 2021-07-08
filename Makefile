@@ -6,7 +6,7 @@ GOARCH := $(shell go env GOARCH)
 GOOS := $(shell go env GOOS)
 
 VERSION ?= $(shell git describe --tags)
-TAG ?= "minio/minio:$(VERSION)"
+TAG ?= "hahahahx/minio-ux:$(VERSION)"
 
 all: build
 
@@ -44,22 +44,22 @@ test-race: verifiers build
 	@echo "Running unit tests under -race"
 	@(env bash $(PWD)/buildscripts/race.sh)
 
-# Verify minio binary
+# Verify minio-ux binary
 verify:
 	@echo "Verifying build with race"
-	@GO111MODULE=on CGO_ENABLED=1 go build -race -tags kqueue -trimpath --ldflags "$(LDFLAGS)" -o $(PWD)/minio 1>/dev/null
+	@GO111MODULE=on CGO_ENABLED=1 go build -race -tags kqueue -trimpath --ldflags "$(LDFLAGS)" -o $(PWD)/minio-ux 1>/dev/null
 	@(env bash $(PWD)/buildscripts/verify-build.sh)
 
-# Verify healing of disks with minio binary
+# Verify healing of disks with minio-ux binary
 verify-healing:
 	@echo "Verify healing build with race"
-	@GO111MODULE=on CGO_ENABLED=1 go build -race -tags kqueue -trimpath --ldflags "$(LDFLAGS)" -o $(PWD)/minio 1>/dev/null
+	@GO111MODULE=on CGO_ENABLED=1 go build -race -tags kqueue -trimpath --ldflags "$(LDFLAGS)" -o $(PWD)/minio-ux 1>/dev/null
 	@(env bash $(PWD)/buildscripts/verify-healing.sh)
 
-# Builds minio locally.
+# Builds minio-ux locally.
 build: checks
-	@echo "Building minio binary to './minio'"
-	@GO111MODULE=on CGO_ENABLED=0 go build -tags kqueue -trimpath --ldflags "$(LDFLAGS)" -o $(PWD)/minio 1>/dev/null
+	@echo "Building minio-ux binary to './minio'"
+	@GO111MODULE=on CGO_ENABLED=0 go build -tags kqueue -trimpath --ldflags "$(LDFLAGS)" -o $(PWD)/minio-ux 1>/dev/null
 
 hotfix-vars:
 	$(eval LDFLAGS := $(shell MINIO_RELEASE="RELEASE" MINIO_HOTFIX="hotfix.$(shell git rev-parse --short HEAD)" go run buildscripts/gen-ldflags.go $(shell git describe --tags --abbrev=0 | \
@@ -68,7 +68,7 @@ hotfix-vars:
 hotfix: hotfix-vars install
 
 docker-hotfix: hotfix checks
-	@echo "Building minio docker image '$(TAG)'"
+	@echo "Building minio-ux docker image '$(TAG)'"
 	@docker build -t $(TAG) . -f Dockerfile.dev
 
 docker: build checks
@@ -77,15 +77,15 @@ docker: build checks
 
 # Builds minio and installs it to $GOPATH/bin.
 install: build
-	@echo "Installing minio binary to '$(GOPATH)/bin/minio'"
-	@mkdir -p $(GOPATH)/bin && cp -f $(PWD)/minio $(GOPATH)/bin/minio
-	@echo "Installation successful. To learn more, try \"minio --help\"."
+	@echo "Installing minio binary to '$(GOPATH)/bin/minio-ux'"
+	@mkdir -p $(GOPATH)/bin && cp -f $(PWD)/minio $(GOPATH)/bin/minio-ux
+	@echo "Installation successful. To learn more, try \"minio-ux --help\"."
 
 clean:
 	@echo "Cleaning up all the generated files"
 	@find . -name '*.test' | xargs rm -fv
 	@find . -name '*~' | xargs rm -fv
-	@rm -rvf minio
+	@rm -rvf minio-ux
 	@rm -rvf build
 	@rm -rvf release
 	@rm -rvf .verify*
