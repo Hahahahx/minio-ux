@@ -8,6 +8,8 @@ import (
 	"github.com/minio/cli"
 	"github.com/minio/madmin-go"
 	minio "github.com/minio/minio/cmd"
+	"github.com/minio/minio/internal/color"
+	color "github.com/minio/minio/internal/color"
 
 	shell "github.com/ipfs/go-ipfs-api"
 )
@@ -99,8 +101,9 @@ func (g *IPFS) NewGatewayLayer(creds madmin.Credentials) (minio.ObjectLayer, err
 		return nil, err
 	}
 
-	fmt.Printf("\nIPFS is run in: " + host)
-	fmt.Printf("\nIpfs.ID: %s\n", out.ID)
+	fmt.Println(color.GreenBold("\nipfs") + " is run in " + host)
+	fmt.Println(color.Blue("ipfs.ID:") + out.ID)
+	fmt.Println(color.Blue("ipfs.PublicKey:") + out.PublicKey)
 
 	return &ipfsObjects{
 		ipfs: sh,
