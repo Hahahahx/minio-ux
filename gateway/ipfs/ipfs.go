@@ -73,7 +73,7 @@ func init() {
 
 func ipfsGatewayMain(ctx *cli.Context) {
 
-	if !ctx.Args().Present() || ctx.Args().First() == "help" {
+	if ctx.Args().First() == "help" {
 		cli.ShowCommandHelpAndExit(ctx, ipfsBackend, 1)
 	}
 
