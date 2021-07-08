@@ -5,13 +5,11 @@ import (
 	"fmt"
 	"net/http"
 
+	color "github.com/fatih/color"
+	shell "github.com/ipfs/go-ipfs-api"
 	"github.com/minio/cli"
 	"github.com/minio/madmin-go"
 	minio "github.com/minio/minio/cmd"
-	"github.com/minio/minio/internal/color"
-	color "github.com/minio/minio/internal/color"
-
-	shell "github.com/ipfs/go-ipfs-api"
 )
 
 // be used in cli.Command
@@ -100,10 +98,9 @@ func (g *IPFS) NewGatewayLayer(creds madmin.Credentials) (minio.ObjectLayer, err
 		fmt.Println("IPFS connected failure " + host)
 		return nil, err
 	}
-
-	fmt.Println(color.GreenBold("\nipfs") + " is run in " + host)
-	fmt.Println(color.Blue("ipfs.ID:") + out.ID)
-	fmt.Println(color.Blue("ipfs.PublicKey:") + out.PublicKey)
+	fmt.Println("\n\nipfs is run in " + host)
+	fmt.Println(color.BlueString("ipfs.ID:") + out.ID)
+	fmt.Println(color.BlueString("ipfs.PublicKey:") + out.PublicKey + "\n")
 
 	return &ipfsObjects{
 		ipfs: sh,
