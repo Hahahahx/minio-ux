@@ -1,247 +1,254 @@
-# MinIO Quickstart Guide
-[![Slack](https://slack.min.io/slack?type=svg)](https://slack.min.io) [![Docker Pulls](https://img.shields.io/docker/pulls/minio/minio.svg?maxAge=604800)](https://hub.docker.com/r/minio/minio/) [![license](https://img.shields.io/badge/license-AGPL%20V3-blue)](https://github.com/minio/minio/blob/master/LICENSE)
+# minio gateway
 
-[![MinIO](https://raw.githubusercontent.com/minio/minio/master/.github/logo.svg?sanitize=true)](https://min.io)
+首先在我们的网关开发中，需要先实现一个 init()函数，该函数会被 minio 主进程调用
+函数主要实现 `minio.RegisterGatewayCommand(cmd cli.Command)`
 
-MinIO is a High Performance Object Storage released under GNU Affero General Public License v3.0. It is API compatible with Amazon S3 cloud storage service. Use MinIO to build high performance infrastructure for machine learning, analytics and application data workloads.
+如下，是 nas 网关中的实现：
 
-This README provides quickstart instructions on running MinIO on baremetal hardware, including container-based installations. For Kubernetes environments, use the [MinIO Kubernetes Operator](https://github.com/minio/operator/blob/master/README.md).
+```Go
 
-# Container Installation
+func init() {
+	const nasGatewayTemplate = `NAME` // 忽略不重要的信息
 
-Use the following commands to run a standalone MinIO server as a container.
+	minio.RegisterGatewayCommand(cli.Command{
+		Name:               minio.NASBackendGateway,    // minio定义的全局字符串 "nas"
+		Usage:              "Network-attached storage (NAS)",
+		Action:             nasGatewayMain,         // 主要执行函数
+		CustomHelpTemplate: nasGatewayTemplate,
+		HideHelpCommand:    true,
+	})
+}
 
-Standalone MinIO servers are best suited for early development and evaluation. Certain features such as versioning, object locking, and bucket replication
-require distributed deploying MinIO with Erasure Coding. For extended development and production, deploy MinIO with Erasure Coding enabled - specifically,
-with a *minimum* of 4 drives per MinIO server. See [MinIO Erasure Code Quickstart Guide](https://docs.min.io/docs/minio-erasure-code-quickstart-guide.html)
-for more complete documentation.
-
-## Stable
-
-Run the following command to run the latest stable image of MinIO as a container using an ephemeral data volume:
-
-```sh
-podman run -p 9000:9000 minio/minio server /data
 ```
 
-The MinIO deployment starts using default root credentials `minioadmin:minioadmin`. You can test the deployment using the MinIO Console, an embedded
-object browser built into MinIO Server. Point a web browser running on the host machine to http://127.0.0.1:9000 and log in with the
-root credentials. You can use the Browser to create buckets, upload objects, and browse the contents of the MinIO server.
+他是提供给命令行工具的重要参数，比如 Name 则是网关的名字，Action 是调用该命令时执行的主要进程，也是最重要的地方。
 
-You can also connect using any S3-compatible tool, such as the MinIO Client `mc` commandline tool. See
-[Test using MinIO Client `mc`](#test-using-minio-client-mc) for more information on using the `mc` commandline tool. For application developers,
-see https://docs.min.io/docs/ and click **MinIO SDKs** in the navigation to view MinIO SDKs for supported languages.
+在该函数中，我们会获得一个`ctx`，最重要的是需要调用`minio.StartGateway(ctx *cli.Context, gw minio.Gateway)`
 
-> NOTE: To deploy MinIO on with persistent storage, you must map local persistent directories from the host OS to the container using the `podman -v` option. For example, `-v /mnt/data:/data` maps the host OS drive at `/mnt/data` to `/data` on the container.
+```Go
+func nasGatewayMain(ctx *cli.Context) {
+	// 此处验证官网的参数，nas网关还要求后面跟一个path，也就是地址参数，比如：
+    // minio gateway nas /mnt/minio/
+	if !ctx.Args().Present() || ctx.Args().First() == "help" {
+		cli.ShowCommandHelpAndExit(ctx, minio.NASBackendGateway, 1)
+	}
 
-# macOS
+    // 那么，path : "/mnt/minio"
+	minio.StartGateway(ctx, &NAS{ctx.Args().First()})
+}
 
-Use the following commands to run a standalone MinIO server on macOS.
-
-Standalone MinIO servers are best suited for early development and evaluation. Certain features such as versioning, object locking, and bucket replication require distributed deploying MinIO with Erasure Coding. For extended development and production, deploy MinIO with Erasure Coding enabled - specifically, with a *minimum* of 4 drives per MinIO server. See [MinIO Erasure Code Quickstart Guide](https://docs.min.io/docs/minio-erasure-code-quickstart-guide.html) for more complete documentation.
-
-## Homebrew (recommended)
-
-Run the following command to install the latest stable MinIO package using [Homebrew](https://brew.sh/). Replace ``/data`` with the path to the drive or directory in which you want MinIO to store data.
-
-```sh
-brew install minio/stable/minio
-minio server /data
 ```
 
-> NOTE: If you previously installed minio using `brew install minio` then it is recommended that you reinstall minio from `minio/stable/minio` official repo instead.
+在 nas 的代码中最终会给`StartGateway`传入一个结构体，该结构体是接口`minio.Gateway`的实现。
 
-```sh
-brew uninstall minio
-brew install minio/stable/minio
+nas 中的结构体，以及 minio 所定义的相关接口：
+
+```Go
+// 该结构体需要实现minio.Gateway
+type NAS struct {
+	path string
+}
+
+type Gateway interface {
+    // 只要返回前面的网关名字符串就好
+	Name() string
+
+	NewGatewayLayer(creds madmin.Credentials) (ObjectLayer, error)
+}
+
+// 用来存放权限信息
+type Credentials struct {
+	AccessKey    string    `xml:"AccessKeyId" json:"accessKey,omitempty"`
+	SecretKey    string    `xml:"SecretAccessKey" json:"secretKey,omitempty"`
+	SessionToken string    `xml:"SessionToken" json:"sessionToken,omitempty"`
+	Expiration   time.Time `xml:"Expiration" json:"expiration,omitempty"`
+}
 ```
 
-The MinIO deployment starts using default root credentials `minioadmin:minioadmin`. You can test the deployment using the MinIO Console, an embedded web-based object browser built into MinIO Server. Point a web browser running on the host machine to http://127.0.0.1:9000 and log in with the root credentials. You can use the Browser to create buckets, upload objects, and browse the contents of the MinIO server.
+在前面的`StartGateway`中，我们实现了`minio.Gateway`接口，`NewGatewayLayer`和前面的流程差不多，也需要实现 minio 所提供的另一个接口`minio.ObjectLayer`并返回它，同时也提供了一个参数`minio.Credentials`，该参数存放着 minio 启动时的操作权限，包括账号和密钥以及有效期等
 
-You can also connect using any S3-compatible tool, such as the MinIO Client `mc` commandline tool. See [Test using MinIO Client `mc`](#test-using-minio-client-mc) for more information on using the `mc` commandline tool. For application developers, see https://docs.min.io/docs/ and click **MinIO SDKs** in the navigation to view MinIO SDKs for supported languages.
+```Go
 
-## Binary Download
-
-Use the following command to download and run a standalone MinIO server on macOS. Replace ``/data`` with the path to the drive or directory in which you want MinIO to store data.
-
-```sh
-wget https://dl.min.io/server/minio/release/darwin-amd64/minio
-chmod +x minio
-./minio server /data
-```
-
-The MinIO deployment starts using default root credentials `minioadmin:minioadmin`. You can test the deployment using the MinIO Console, an embedded web-based object browser built into MinIO Server. Point a web browser running on the host machine to http://127.0.0.1:9000 and log in with the root credentials. You can use the Browser to create buckets, upload objects, and browse the contents of the MinIO server.
-
-You can also connect using any S3-compatible tool, such as the MinIO Client `mc` commandline tool. See [Test using MinIO Client `mc`](#test-using-minio-client-mc) for more information on using the `mc` commandline tool. For application developers, see https://docs.min.io/docs/ and click **MinIO SDKs** in the navigation to view MinIO SDKs for supported languages.
-
-# GNU/Linux
-
-Use the following command to run a standalone MinIO server on Linux hosts running 64-bit Intel/AMD architectures. Replace ``/data`` with the path to the drive or directory in which you want MinIO to store data.
-
-```sh
-wget https://dl.min.io/server/minio/release/linux-amd64/minio
-chmod +x minio
-./minio server /data
-```
-
-Replace ``/data`` with the path to the drive or directory in which you want MinIO to store data.
-
-The following table lists supported architectures. Replace the `wget` URL with the architecture for your Linux host.
-
-| Architecture                   | URL                                                        |
-| --------                       | ------                                                     |
-| 64-bit Intel/AMD               | https://dl.min.io/server/minio/release/linux-amd64/minio   |
-| 64-bit ARM                     | https://dl.min.io/server/minio/release/linux-arm64/minio   |
-| 64-bit PowerPC LE (ppc64le)    | https://dl.min.io/server/minio/release/linux-ppc64le/minio |
-| IBM Z-Series (S390X)           | https://dl.min.io/server/minio/release/linux-s390x/minio   |
-
-The MinIO deployment starts using default root credentials `minioadmin:minioadmin`. You can test the deployment using the MinIO Console, an embedded web-based object browser built into MinIO Server. Point a web browser running on the host machine to http://127.0.0.1:9000 and log in with the root credentials. You can use the Browser to create buckets, upload objects, and browse the contents of the MinIO server.
-
-You can also connect using any S3-compatible tool, such as the MinIO Client `mc` commandline tool. See [Test using MinIO Client `mc`](#test-using-minio-client-mc) for more information on using the `mc` commandline tool. For application developers, see https://docs.min.io/docs/ and click **MinIO SDKs** in the navigation to view MinIO SDKs for supported languages.
-
-> NOTE: Standalone MinIO servers are best suited for early development and evaluation. Certain features such as versioning, object locking, and bucket replication require distributed deploying MinIO with Erasure Coding. For extended development and production, deploy MinIO with Erasure Coding enabled - specifically, with a *minimum* of 4 drives per MinIO server. See [MinIO Erasure Code Quickstart Guide](https://docs.min.io/docs/minio-erasure-code-quickstart-guide.html) for more complete documentation.
-
-# Microsoft Windows
-
-To run MinIO on 64-bit Windows hosts, download the MinIO executable from the following URL:
-
-```sh
-https://dl.min.io/server/minio/release/windows-amd64/minio.exe
-```
-
-Use the following command to run a standalone MinIO server on the Windows host. Replace ``D:\`` with the path to the drive or directory in which you want MinIO to store data. You must change the terminal or powershell directory to the location of the ``minio.exe`` executable, *or* add the path to that directory to the system ``$PATH``:
-
-```sh
-minio.exe server D:\
-```
-
-The MinIO deployment starts using default root credentials `minioadmin:minioadmin`. You can test the deployment using the MinIO Console, an embedded web-based object browser built into MinIO Server. Point a web browser running on the host machine to http://127.0.0.1:9000 and log in with the root credentials. You can use the Browser to create buckets, upload objects, and browse the contents of the MinIO server.
-
-You can also connect using any S3-compatible tool, such as the MinIO Client `mc` commandline tool. See [Test using MinIO Client `mc`](#test-using-minio-client-mc) for more information on using the `mc` commandline tool. For application developers, see https://docs.min.io/docs/ and click **MinIO SDKs** in the navigation to view MinIO SDKs for supported languages.
-
-> NOTE: Standalone MinIO servers are best suited for early development and evaluation. Certain features such as versioning, object locking, and bucket replication require distributed deploying MinIO with Erasure Coding. For extended development and production, deploy MinIO with Erasure Coding enabled - specifically, with a *minimum* of 4 drives per MinIO server. See [MinIO Erasure Code Quickstart Guide](https://docs.min.io/docs/minio-erasure-code-quickstart-guide.html) for more complete documentation.
-
-# Install from Source
-
-Use the following commands to compile and run a standalone MinIO server from source. Source installation is only intended for developers and advanced users. If you do not have a working Golang environment, please follow [How to install Golang](https://golang.org/doc/install). Minimum version required is [go1.16](https://golang.org/dl/#stable)
-
-```sh
-GO111MODULE=on go install github.com/minio/minio@latest
-```
-
-The MinIO deployment starts using default root credentials `minioadmin:minioadmin`. You can test the deployment using the MinIO Console, an embedded web-based object browser built into MinIO Server. Point a web browser running on the host machine to http://127.0.0.1:9000 and log in with the root credentials. You can use the Browser to create buckets, upload objects, and browse the contents of the MinIO server.
-
-You can also connect using any S3-compatible tool, such as the MinIO Client `mc` commandline tool. See [Test using MinIO Client `mc`](#test-using-minio-client-mc) for more information on using the `mc` commandline tool. For application developers, see https://docs.min.io/docs/ and click **MinIO SDKs** in the navigation to view MinIO SDKs for supported languages.
-
-> NOTE: Standalone MinIO servers are best suited for early development and evaluation. Certain features such as versioning, object locking, and bucket replication require distributed deploying MinIO with Erasure Coding. For extended development and production, deploy MinIO with Erasure Coding enabled - specifically, with a *minimum* of 4 drives per MinIO server. See [MinIO Erasure Code Quickstart Guide](https://docs.min.io/docs/minio-erasure-code-quickstart-guide.html) for more complete documentation.
-
-MinIO strongly recommends *against* using compiled-from-source MinIO servers for production environments.
-
-# Deployment Recommendations
-
-## Allow port access for Firewalls
-
-By default MinIO uses the port 9000 to listen for incoming connections. If your platform blocks the port by default, you may need to enable access to the port.
-
-### ufw
-
-For hosts with ufw enabled (Debian based distros), you can use `ufw` command to allow traffic to specific ports. Use below command to allow access to port 9000
-
-```sh
-ufw allow 9000
-```
-
-Below command enables all incoming traffic to ports ranging from 9000 to 9010.
-
-```sh
-ufw allow 9000:9010/tcp
-```
-
-### firewall-cmd
-
-For hosts with firewall-cmd enabled (CentOS), you can use `firewall-cmd` command to allow traffic to specific ports. Use below commands to allow access to port 9000
-
-```sh
-firewall-cmd --get-active-zones
-```
-
-This command gets the active zone(s). Now, apply port rules to the relevant zones returned above. For example if the zone is `public`, use
-
-```sh
-firewall-cmd --zone=public --add-port=9000/tcp --permanent
-```
-
-Note that `permanent` makes sure the rules are persistent across firewall start, restart or reload. Finally reload the firewall for changes to take effect.
-
-```sh
-firewall-cmd --reload
-```
-
-### iptables
-
-For hosts with iptables enabled (RHEL, CentOS, etc), you can use `iptables` command to enable all traffic coming to specific ports. Use below command to allow
-access to port 9000
-
-```sh
-iptables -A INPUT -p tcp --dport 9000 -j ACCEPT
-service iptables restart
-```
-
-Below command enables all incoming traffic to ports ranging from 9000 to 9010.
-
-```sh
-iptables -A INPUT -p tcp --dport 9000:9010 -j ACCEPT
-service iptables restart
-```
-
-## Pre-existing data
-When deployed on a single drive, MinIO server lets clients access any pre-existing data in the data directory. For example, if MinIO is started with the command  `minio server /mnt/data`, any pre-existing data in the `/mnt/data` directory would be accessible to the clients.
-
-The above statement is also valid for all gateway backends.
-
-# Test MinIO Connectivity
-
-## Test using MinIO Console
-MinIO Server comes with an embedded web based object browser. Point your web browser to http://127.0.0.1:9000 to ensure your server has started successfully.
-
-> NOTE: MinIO runs console on random port by default if you wish choose a specific port use `--console-address` to pick a specific interface and port.
-
-| Dashboard                                                                                   | Creating a bucket                                                                           |
-| -------------                                                                               | -------------                                                                               |
-| ![Dashboard](https://github.com/minio/minio/blob/master/docs/screenshots/pic1.png?raw=true) | ![Dashboard](https://github.com/minio/minio/blob/master/docs/screenshots/pic2.png?raw=true) |
-
-## Test using MinIO Client `mc`
-`mc` provides a modern alternative to UNIX commands like ls, cat, cp, mirror, diff etc. It supports filesystems and Amazon S3 compatible cloud storage services. Follow the MinIO Client [Quickstart Guide](https://docs.min.io/docs/minio-client-quickstart-guide) for further instructions.
-
-# Upgrading MinIO
-MinIO server supports rolling upgrades, i.e. you can update one MinIO instance at a time in a distributed cluster. This allows upgrades with no downtime. Upgrades can be done manually by replacing the binary with the latest release and restarting all servers in a rolling fashion. However, we recommend all our users to use [`mc admin update`](https://docs.min.io/docs/minio-admin-complete-guide.html#update) from the client. This will update all the nodes in the cluster simultaneously and restart them, as shown in the following command from the MinIO client (mc):
+func (g *NAS) NewGatewayLayer(creds madmin.Credentials) (minio.ObjectLayer, error) {
+	var err error
+    // ObjectLayer实例
+	newObject, err := minio.NewFSObjectLayer(g.path)
+	if err != nil {
+		return nil, err
+	}
+	return &nasObjects{newObject}, nil
+}
 
 ```
-mc admin update <minio alias, e.g., myminio>
+
+在 nas 中，ObjectLayer 实例由`minio.NewFSObjectLayer`创建，其用法与`minio server /mnt/minio`并无区别。而在我们自定义的网关中，并非这么实现，比如我们需要对接 ipfs，其中的诸多参数需要我们自己考量。
+
+```Go
+// FSObjectLayer实例
+	fs := &FSObjects{
+		fsPath:       fsPath,
+		metaJSONFile: fsMetaJSONFile,
+		fsUUID:       fsUUID,
+		rwPool: &fsIOPool{
+			readersMap: make(map[string]*lock.RLockedFile),
+		},
+		nsMutex:       newNSLock(false),
+		listPool:      NewTreeWalkPool(globalLookupTimeout),
+		appendFileMap: make(map[string]*fsAppendFile),
+		diskMount:     mountinfo.IsLikelyMountPoint(fsPath),
+	}
+
 ```
 
-> NOTE: some releases might not allow rolling upgrades, this is always called out in the release notes and it is generally advised to read release notes before upgrading. In such a situation `mc admin update` is the recommended upgrading mechanism to upgrade all servers at once.
+还记得我们需要实现`minio.ObjectLayer`接口吗。
 
-## Important things to remember during MinIO upgrades
+```Go
 
-- `mc admin update` will only work if the user running MinIO has write access to the parent directory where the binary is located, for example if the current binary is at `/usr/local/bin/minio`, you would need write access to `/usr/local/bin`.
-- `mc admin update` updates and restarts all servers simultaneously, applications would retry and continue their respective operations upon upgrade.
-- `mc admin update` is disabled in kubernetes/container environments, container environments provide their own mechanisms to rollout of updates.
-- In the case of federated setups `mc admin update` should be run against each cluster individually. Avoid updating `mc` to any new releases until all clusters have been successfully updated.
-- If using `kes` as KMS with MinIO, just replace the binary and restart `kes` more information about `kes` can be found [here](https://github.com/minio/kes/wiki)
-- If using Vault as KMS with MinIO, ensure you have followed the Vault upgrade procedure outlined here: https://www.vaultproject.io/docs/upgrading/index.html
-- If using etcd with MinIO for the federation, ensure you have followed the etcd upgrade procedure outlined here: https://github.com/etcd-io/etcd/blob/master/Documentation/upgrades/upgrading-etcd.md
+// ObjectLayer implements primitives for object API layer.
+type ObjectLayer interface {
+	// Locking operations on object.
+	NewNSLock(bucket string, objects ...string) RWLocker
 
-# Explore Further
-- [MinIO Erasure Code QuickStart Guide](https://docs.min.io/docs/minio-erasure-code-quickstart-guide)
-- [Use `mc` with MinIO Server](https://docs.min.io/docs/minio-client-quickstart-guide)
-- [Use `aws-cli` with MinIO Server](https://docs.min.io/docs/aws-cli-with-minio)
-- [Use `s3cmd` with MinIO Server](https://docs.min.io/docs/s3cmd-with-minio)
-- [Use `minio-go` SDK with MinIO Server](https://docs.min.io/docs/golang-client-quickstart-guide)
-- [The MinIO documentation website](https://docs.min.io)
+	// Storage operations.
+	Shutdown(context.Context) error
+	NSScanner(ctx context.Context, bf *bloomFilter, updates chan<- madmin.DataUsageInfo) error
 
-# Contribute to MinIO Project
-Please follow MinIO [Contributor's Guide](https://github.com/minio/minio/blob/master/CONTRIBUTING.md)
+	BackendInfo() madmin.BackendInfo
+	StorageInfo(ctx context.Context) (StorageInfo, []error)
+	LocalStorageInfo(ctx context.Context) (StorageInfo, []error)
 
-# License
-Use of MinIO is governed by the GNU AGPLv3 license that can be found in the [LICENSE](https://github.com/minio/minio/blob/master/LICENSE) file.
+	// Bucket operations.
+	MakeBucketWithLocation(ctx context.Context, bucket string, opts BucketOptions) error
+	GetBucketInfo(ctx context.Context, bucket string) (bucketInfo BucketInfo, err error)
+	ListBuckets(ctx context.Context) (buckets []BucketInfo, err error)
+	DeleteBucket(ctx context.Context, bucket string, forceDelete bool) error
+	ListObjects(ctx context.Context, bucket, prefix, marker, delimiter string, maxKeys int) (result ListObjectsInfo, err error)
+	ListObjectsV2(ctx context.Context, bucket, prefix, continuationToken, delimiter string, maxKeys int, fetchOwner bool, startAfter string) (result ListObjectsV2Info, err error)
+	ListObjectVersions(ctx context.Context, bucket, prefix, marker, versionMarker, delimiter string, maxKeys int) (result ListObjectVersionsInfo, err error)
+	// Walk lists all objects including versions, delete markers.
+	Walk(ctx context.Context, bucket, prefix string, results chan<- ObjectInfo, opts ObjectOptions) error
+
+	// Object operations.
+
+	// GetObjectNInfo returns a GetObjectReader that satisfies the
+	// ReadCloser interface. The Close method unlocks the object
+	// after reading, so it must always be called after usage.
+	//
+	// IMPORTANTLY, when implementations return err != nil, this
+	// function MUST NOT return a non-nil ReadCloser.
+	GetObjectNInfo(ctx context.Context, bucket, object string, rs *HTTPRangeSpec, h http.Header, lockType LockType, opts ObjectOptions) (reader *GetObjectReader, err error)
+	GetObjectInfo(ctx context.Context, bucket, object string, opts ObjectOptions) (objInfo ObjectInfo, err error)
+	PutObject(ctx context.Context, bucket, object string, data *PutObjReader, opts ObjectOptions) (objInfo ObjectInfo, err error)
+	CopyObject(ctx context.Context, srcBucket, srcObject, destBucket, destObject string, srcInfo ObjectInfo, srcOpts, dstOpts ObjectOptions) (objInfo ObjectInfo, err error)
+	DeleteObject(ctx context.Context, bucket, object string, opts ObjectOptions) (ObjectInfo, error)
+	DeleteObjects(ctx context.Context, bucket string, objects []ObjectToDelete, opts ObjectOptions) ([]DeletedObject, []error)
+	TransitionObject(ctx context.Context, bucket, object string, opts ObjectOptions) error
+	RestoreTransitionedObject(ctx context.Context, bucket, object string, opts ObjectOptions) error
+
+	// Multipart operations.
+	ListMultipartUploads(ctx context.Context, bucket, prefix, keyMarker, uploadIDMarker, delimiter string, maxUploads int) (result ListMultipartsInfo, err error)
+	NewMultipartUpload(ctx context.Context, bucket, object string, opts ObjectOptions) (uploadID string, err error)
+	CopyObjectPart(ctx context.Context, srcBucket, srcObject, destBucket, destObject string, uploadID string, partID int,
+		startOffset int64, length int64, srcInfo ObjectInfo, srcOpts, dstOpts ObjectOptions) (info PartInfo, err error)
+	PutObjectPart(ctx context.Context, bucket, object, uploadID string, partID int, data *PutObjReader, opts ObjectOptions) (info PartInfo, err error)
+	GetMultipartInfo(ctx context.Context, bucket, object, uploadID string, opts ObjectOptions) (info MultipartInfo, err error)
+	ListObjectParts(ctx context.Context, bucket, object, uploadID string, partNumberMarker int, maxParts int, opts ObjectOptions) (result ListPartsInfo, err error)
+	AbortMultipartUpload(ctx context.Context, bucket, object, uploadID string, opts ObjectOptions) error
+	CompleteMultipartUpload(ctx context.Context, bucket, object, uploadID string, uploadedParts []CompletePart, opts ObjectOptions) (objInfo ObjectInfo, err error)
+
+	// Policy operations
+	SetBucketPolicy(context.Context, string, *policy.Policy) error
+	GetBucketPolicy(context.Context, string) (*policy.Policy, error)
+	DeleteBucketPolicy(context.Context, string) error
+
+	// Supported operations check
+	IsNotificationSupported() bool
+	IsListenSupported() bool
+	IsEncryptionSupported() bool
+	IsTaggingSupported() bool
+	IsCompressionSupported() bool
+
+	SetDriveCounts() []int // list of erasure stripe size for each pool in order.
+
+	// Healing operations.
+	HealFormat(ctx context.Context, dryRun bool) (madmin.HealResultItem, error)
+	HealBucket(ctx context.Context, bucket string, opts madmin.HealOpts) (madmin.HealResultItem, error)
+	HealObject(ctx context.Context, bucket, object, versionID string, opts madmin.HealOpts) (madmin.HealResultItem, error)
+	HealObjects(ctx context.Context, bucket, prefix string, opts madmin.HealOpts, fn HealObjectFn) error
+
+	// Backend related metrics
+	GetMetrics(ctx context.Context) (*BackendMetrics, error)
+
+	// Returns health of the backend
+	Health(ctx context.Context, opts HealthOptions) HealthResult
+	ReadHealth(ctx context.Context) bool
+
+	// Metadata operations
+	PutObjectMetadata(context.Context, string, string, ObjectOptions) (ObjectInfo, error)
+
+	// ObjectTagging operations
+	PutObjectTags(context.Context, string, string, string, ObjectOptions) (ObjectInfo, error)
+	GetObjectTags(context.Context, string, string, ObjectOptions) (*tags.Tags, error)
+	DeleteObjectTags(context.Context, string, string, ObjectOptions) (ObjectInfo, error)
+}
+```
+
+很多对吧，这很夸张，我知道，但是别急。nas中实现了三个函数`IsListenSupported`，`StorageInfo`，`IsTaggingSupported`
+
+
+```Go
+
+
+// IsListenSupported returns whether listen bucket notification is applicable for this gateway.
+func (n *nasObjects) IsListenSupported() bool {
+	return false
+}
+
+func (n *nasObjects) StorageInfo(ctx context.Context) (si minio.StorageInfo, _ []error) {
+	si, errs := n.ObjectLayer.StorageInfo(ctx)
+	si.Backend.GatewayOnline = si.Backend.Type == madmin.FS
+	si.Backend.Type = madmin.Gateway
+	return si, errs
+}
+
+func (n *nasObjects) IsTaggingSupported() bool {
+	return true
+}
+
+```
+
+
+据我了解nas网关提供的功能其实和server是一样的，在其他网关开发中和他还是有所区别的，比如s3、hdfs等。在上面的`ObjectLayer`诸多方法中，有许多的功能是无需实现的，在这里minio给我们提供了一个接口`minio.GatewayUnsupported`，它实现了一些在网关中不太重要的方法，好让我们在注册一个ObjectLayer时不需要自己手动实现这些方法。
+
+以下是经过简化后的接口列表，也就是说这些方法也还是需要我们实现的，在s3、hdfs中也都完成了对他们的实现
+
+```Go
+
+// ObjectLayer implements primitives for object API layer.
+type ObjectLayer interface {
+
+	// Storage operations.
+	// issue：关闭？
+	Shutdown(context.Context) error
+	// 存储信息
+	StorageInfo(ctx context.Context) (StorageInfo, []error)
+
+	// Bucket operations.
+	// 创建一个Bucket
+	MakeBucketWithLocation(ctx context.Context, bucket string, opts BucketOptions) error
+	// 获取Bucket信息
+	GetBucketInfo(ctx context.Context, bucket string) (bucketInfo BucketInfo, err error)
+	ListBuckets(ctx context.Context) (buckets []BucketInfo, err error)
+	DeleteBucket(ctx context.Context, bucket string, forceDelete bool) error
+	ListObjects(ctx context.Context, bucket, prefix, marker, delimiter string, maxKeys int) (result ListObjectsInfo, err error)
+
+	// Object operations.
+	GetObjectNInfo(ctx context.Context, bucket, object string, rs *HTTPRangeSpec, h http.Header, lockType LockType, opts ObjectOptions) (reader *GetObjectReader, err error)
+	GetObjectInfo(ctx context.Context, bucket, object string, opts ObjectOptions) (objInfo ObjectInfo, err error)
+	PutObject(ctx context.Context, bucket, object string, data *PutObjReader, opts ObjectOptions) (objInfo ObjectInfo, err error)
+	DeleteObject(ctx context.Context, bucket, object string, opts ObjectOptions) (ObjectInfo, error)
+	DeleteObjects(ctx context.Context, bucket string, objects []ObjectToDelete, opts ObjectOptions) ([]DeletedObject, []error)
+}
+```
+
+```

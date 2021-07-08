@@ -1,4 +1,4 @@
-module github.com/minio/minio
+module github.com/Hahahahx/minio-ux
 
 go 1.16
 

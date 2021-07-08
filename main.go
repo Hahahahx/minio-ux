@@ -17,12 +17,14 @@
 
 package main // import "github.com/minio/minio"
 
+// 导入minio命令行核心包
 import (
 	"os"
 
 	minio "github.com/minio/minio/cmd"
 
-	// Import gateway
+	_ "github.com/Hahahahx/minio-ux/gateway"
+
 	_ "github.com/minio/minio/cmd/gateway"
 )
 
