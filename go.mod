@@ -9,3 +9,5 @@ require (
 	github.com/minio/madmin-go v1.0.15
 	github.com/minio/minio v0.0.0-20210708080437-affee27b05db
 )
+
+replace google.golang.org/grpc => google.golang.org/grpc v1.29.1
