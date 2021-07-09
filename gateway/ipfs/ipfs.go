@@ -10,6 +10,7 @@ import (
 	"github.com/minio/cli"
 	"github.com/minio/madmin-go"
 	minio "github.com/minio/minio/cmd"
+	"github.com/minio/minio/internal/auth"
 )
 
 // be used in cli.Command
@@ -88,16 +89,17 @@ func (g *IPFS) Name() string {
 
 // NewGatewayLayer returns ipfs gatewaylayer (instance of ipfsObject)
 // func (g *IPFS) NewGatewayLayer(creds madmin.Credentials) (*ipfsObjects, error) {
-func (g *IPFS) NewGatewayLayer(creds madmin.Credentials) (minio.ObjectLayer, error) {
+func (g *IPFS) NewGatewayLayer(creds auth.Credentials) (minio.ObjectLayer, error) {
 
 	// Where your local node is running on localhost:5001
 	host := If(g.host != "", g.host, "localhost:5001").(string)
 	sh := shell.NewShell(host)
 	out, err := sh.ID()
 	if err != nil {
-		fmt.Println("IPFS connected failure " + host)
+		fmt.Println("\n\n" + color.RedString("\tIPFS connected failure "+host+"\n\n"))
 		return nil, err
 	}
+
 	fmt.Println("\n\nipfs is run in " + host)
 	fmt.Println(color.BlueString("ipfs.ID:") + out.ID)
 	fmt.Println(color.BlueString("ipfs.PublicKey:") + out.PublicKey + "\n")
@@ -126,13 +128,10 @@ func (i *ipfsObjects) StorageInfo(ctx context.Context) (si minio.StorageInfo, er
 	if error := i.ipfs.Request("stats/repo").Exec(context.Background(), &out); error != nil {
 		return
 	}
-
-	si.Disks = []madmin.Disk{{
+	si.Disks = append(si.Disks, madmin.Disk{
 		UsedSpace:  out.RepoSize,
 		TotalSpace: out.StorageMax,
-		DrivePath:  out.RepoPath,
-	}}
-
+		DrivePath:  out.RepoPath})
 	si.Backend.Type = madmin.Gateway
 	si.Backend.GatewayOnline = true
 
